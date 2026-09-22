@@ -1,0 +1,149 @@
+\documentclass[11pt,a4paper]{ctexart}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,booktabs,array,hyperref}
+\usepackage{enumitem}
+
+\hypersetup{colorlinks=true,linkcolor=black,urlcolor=blue}
+\setlength{\parindent}{2em}
+\setlength{\parskip}{0.35em}
+\linespread{1.18}
+
+\title{人工智能第一次作业\\拼音输入法实验报告}
+\author{钟锦程\quad 2026210748\quad 电子工程系}
+\date{2026年秋}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{实验环境}
+
+实验在 macOS 26.6.2 上完成，处理器为 Apple M5 Pro，内存为 24 GiB，Python 版本为 3.13.13。程序只使用 Python 标准库，主要包括 \texttt{json}、\texttt{collections}、\texttt{math}、\texttt{pickle} 和 \texttt{gzip}。
+
+新浪新闻语料和助教下发的两个汉字表使用 GBK 编码。程序使用兼容 GBK 的 GB18030 解码：
+
+\begin{verbatim}
+with path.open(encoding="gb18030") as source:
+    ...
+\end{verbatim}
+
+测试输入为 ASCII（也是 UTF-8 的子集），标准答案和程序生成的 \texttt{output.txt} 使用 UTF-8。Python 在本实验终端中以 UTF-8 写标准输出，评测脚本也显式以 UTF-8 写文件。
+
+\section{语料库与预处理}
+
+必做模型只使用助教提供的新浪新闻 2016 年 4 月至 11 月语料，共 8 个 JSON Lines 文件。每行是一条新闻，训练时读取其中的 \texttt{title} 和 \texttt{html} 字段。整个训练过程逐行进行，内存中只保存计数，不一次性加载约 831 MiB 的语料。
+
+预处理步骤如下：
+
+\begin{enumerate}[leftmargin=2.2em]
+  \item 读取“一二级汉字表”，建立包含 6763 个合法汉字的集合；
+  \item 逐行解析新闻 JSON，依次处理标题和正文；
+  \item 仅统计合法汉字的一元次数和相邻二元次数；
+  \item 遇到标点、数字、英文或字表外字符时断开上下文，避免把标点两侧误算成相邻汉字；
+  \item 同时统计每个文本片段的首字，供后续句首优化使用。
+\end{enumerate}
+
+最终共处理 354,055,241 个合法汉字。没有使用 SMP2020 或外部语料，以便保证实现和实验结论简单、可复现。
+
+\section{基于字的二元模型}
+
+\subsection{概率模型}
+
+设汉字总数为 $N$，字库大小为 $V$，汉字 $c$ 的出现次数为 $N(c)$。一元概率使用加一平滑：
+
+\begin{equation}
+P_1(c)=\frac{N(c)+1}{N+V}.
+\end{equation}
+
+对相邻汉字 $a,c$，二元条件概率与一元概率进行线性插值：
+
+\begin{equation}
+P(c\mid a)=\lambda\frac{N(a,c)}{N(a)}+(1-\lambda)P_1(c),
+\end{equation}
+
+其中 $\lambda=0.99$。当二元组没有在训练语料中出现时，模型仍可回退到非零的一元概率。为避免很多小概率连乘产生浮点下溢，实际计算使用对数分数：
+
+\begin{equation}
+\operatorname{score}(c_1\ldots c_n)=\log P_1(c_1)+\sum_{i=2}^{n}\log P(c_i\mid c_{i-1}).
+\end{equation}
+
+\subsection{Viterbi 解码}
+
+对输入的每个拼音，从拼音汉字表取得候选字集合。第 $i$ 层的每个候选字尝试连接第 $i-1$ 层所有候选字，只保留累计分数最高的路径和对应前驱。处理完最后一个拼音后，从最高分终点沿前驱指针反向恢复整句。
+
+这种动态规划避免枚举全部候选句子，同时保留了二元模型下的全局最优路径。程序逐行读取标准输入并逐行输出，不在标准输出中打印训练日志或调试信息。
+
+\section{实验结果}
+
+测试集实际包含 501 句、5235 个汉字。表~\ref{tab:result} 给出同一次完整训练后的结果。
+
+\begin{table}[htbp]
+  \centering
+  \caption{本地测试结果}
+  \label{tab:result}
+  \begin{tabular}{lrrrr}
+    \toprule
+    方法 & 字准确率 & 句准确率 & 501句预测时间 & 模型大小 \\
+    \midrule
+    普通二元模型 & 84.05\% & 39.52\% & 约0.9秒 & 8.86 MiB \\
+    二元模型+句首统计 & 83.90\% & 40.12\% & 约0.9秒 & 8.86 MiB \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+生成词频模型耗时 98.91 秒，压缩后的模型文件大小为 8.86 MiB。两种方法均超过作业要求的字准确率 80\% 和句准确率 35\%。
+
+\subsection{案例分析}
+
+普通新闻表达通常效果较好。例如输入 \texttt{qing hua da xue} 和 \texttt{ren gong zhi neng} 时，模型分别输出“清华大学”和“人工智能”。句首统计还纠正了若干首字错误：普通模型把 \texttt{de guo zong li} 输出为“的国总理”，加入句首统计后得到“德国总理”；\texttt{dai kou zhao} 也由“大口罩”变为“戴口罩”。原因是“德”“戴”作为片段首字比“的”“大”更合理。
+
+较差结果主要来自训练领域和二元上下文的限制。例如 \texttt{chuang qian ming yue guang} 的答案是“床前明月光”，模型输出“创千名越广”；\texttt{sheng hua huan cai} 的答案是“生化环材”，模型输出“省华垸蔡”。古诗、缩略语和低频专名在新闻语料中较少，且二元模型只能观察前一个字，无法利用更长的固定搭配。
+
+\section{改进方法：句首统计}
+
+普通二元模型使用全局一元概率选择首字，但高频字不一定适合作为句首。改进方法在预处理时额外统计每个文本片段的首字次数 $N_s(c)$，解码第一层时改用
+
+\begin{equation}
+P_s(c)=\frac{N_s(c)+1}{N_s+V}.
+\end{equation}
+
+其余位置仍使用完全相同的二元转移。该方法只增加一个计数表，不改变 Viterbi 主体，也几乎不增加训练和预测开销。
+
+实验中句准确率从 39.52\% 提升到 40.12\%，说明首字先验确实修正了一些整句；字准确率从 84.05\% 略降到 83.90\%，说明句首分布也会在少数句子中把原本正确的高频字替换掉。该结果表明，针对句子位置建模有价值，但仅依赖句首统计仍不够稳定。若继续改进，可考虑三元模型或基于词的模型。
+
+\section{思考题}
+
+\subsection{GBK、UTF-8 与其他编码}
+
+GBK 是面向简体中文的编码，兼容 GB2312，常用汉字通常占两个字节；它不覆盖全部 Unicode 字符。UTF-8 是 Unicode 的可变长编码，ASCII 字符占一个字节，中文通常占三个字节，跨平台和互联网交换时更通用。用错误编码解释同一组字节就会出现乱码，本实验因此必须在读取语料时明确指定 GBK 或兼容的 GB18030，再以 UTF-8 输出。
+
+其他编码包括 UTF-16，常用于部分操作系统接口和需要直接处理 Unicode 码元的场景；ASCII 适合只含英文、数字和控制符的简单协议；Big5 曾广泛用于繁体中文环境。
+
+\subsection{Viterbi 复杂度}
+
+设输入长度为 $n$，字库大小为 $V$，读音数量为常数 $C$，且汉字在读音上均匀分布，则每个拼音平均有 $V/C$ 个候选字。每一层需要枚举前后两层的候选字组合，因此时间复杂度为
+
+\begin{equation}
+O\!\left(n\left(\frac{V}{C}\right)^2\right).
+\end{equation}
+
+因为 $C$ 是常数，也可写为 $O(nV^2)$。滚动保存当前层分数只需 $O(V/C)$ 空间；为了反向恢复完整路径，需要保存每层每个候选字的前驱，因此总体空间复杂度为
+
+\begin{equation}
+O\!\left(n\frac{V}{C}\right)=O(nV).
+\end{equation}
+
+\subsection{两种输入输出代码}
+
+代码 A 每读入一个值就立即输出，代码 B 先读到 EOF，再统一输出。对于本题这种非交互式批处理 OJ，只要输入最终会结束，并且输出顺序和内容不变，两种代码得到的标准输出都是“1、2”，因此都正确。区别只在输出发生的时间和代码 B 需要保存全部输入。若题目是交互式程序，代码 A 更合适，而且通常还需要主动刷新输出缓冲区。
+
+\section{总结与感受}
+
+本实验完成了从 GBK 新闻语料预处理、词频统计、概率平滑到 Viterbi 解码的完整流程。最容易出错的部分不是公式，而是编码、标点断句、标准输入输出以及未知二元组的回退。保持训练和解码代码简单，使这些问题更容易定位。
+
+二元模型已经达到作业指标，但古诗和低频短语的错误说明局部统计存在明显上限。句首统计以很小的实现代价提高了句准确率，同时也展示了评价指标之间并非总是同步变化。完成本实验约投入数小时，主要时间用于完整语料训练、准确率核对和错误案例分析。
+
+\end{document}

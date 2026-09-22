@@ -12,3 +12,14 @@ assignment*/**/sina_news_gbk/
 assignment*/**/SMP2020/
 assignment*/**/model.pkl.gz
 assignment*/**/data/output.txt
+
+# LaTeX build files; final reports live directly under each assignment.
+assignment*/report/*.aux
+assignment*/report/*.fdb_latexmk
+assignment*/report/*.fls
+assignment*/report/*.log
+assignment*/report/*.out
+assignment*/report/*.pdf
+assignment*/report/*.toc
+assignment*/report/*.xdv
+assignment*/report/*.synctex.gz
