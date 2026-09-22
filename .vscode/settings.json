@@ -1,4 +1,4 @@
 {
   "files.autoGuessEncoding": true,
-  "files.candidateGuessEncodings": ["gbk"]
+  "files.candidateGuessEncodings": ["gb2312"]
 }
