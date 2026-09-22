@@ -1,0 +1,12 @@
+.DS_Store
+**/.venv/
+**/__pycache__/
+*.py[cod]
+**/.ipynb_checkpoints/
+tmp/
+
+# Large corpora stay local.
+assignment*/**/语料库.zip
+assignment*/**/corpus/
+assignment*/**/sina_news_gbk/
+assignment*/**/SMP2020/
