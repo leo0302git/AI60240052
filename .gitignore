@@ -10,3 +10,5 @@ assignment*/**/语料库.zip
 assignment*/**/corpus/
 assignment*/**/sina_news_gbk/
 assignment*/**/SMP2020/
+assignment*/**/model.pkl.gz
+assignment*/**/data/output.txt
