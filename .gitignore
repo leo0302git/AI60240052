@@ -4,6 +4,10 @@
 *.py[cod]
 **/.ipynb_checkpoints/
 tmp/
+assignment2/.tmp/
+assignment2/data/
+assignment2/mnist.zip
+assignment2/solution/checkpoints/
 
 # Large corpora stay local.
 assignment*/**/语料库.zip
