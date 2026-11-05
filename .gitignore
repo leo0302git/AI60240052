@@ -8,6 +8,7 @@ assignment2/.tmp/
 assignment2/data/
 assignment2/mnist.zip
 assignment2/solution/checkpoints/
+数字识别 (1).zip
 
 # Large corpora stay local.
 assignment*/**/语料库.zip

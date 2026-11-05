@@ -12,6 +12,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
 import torch
 from PIL import Image, ImageDraw, ImageFont
@@ -27,7 +28,6 @@ DATA = ROOT / "data"
 RESULTS = HERE / "results"
 CHECKPOINTS = HERE / "checkpoints"
 SEED = 2026
-MEAN, STD = 0.1307, 0.3081
 
 
 def prepare_data():
@@ -152,40 +152,86 @@ def font_digits(transform):
                 draw.text((x, y), str(digit), font=font, fill=255)
                 images.append(transform(image))
                 labels.append(digit)
-                if font_path == fonts[0] and dx == 0:
+                if dx == 0:
                     preview.append(image)
     return TensorDataset(torch.stack(images), torch.tensor(labels)), preview
 
 
 def plot_results(metrics, confusion, preview):
-    names = list(metrics["models"])
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
-    for name in names:
-        epochs = [row["epoch"] for row in metrics["models"][name]["history"]]
-        axes[0].plot(epochs, [row["val_accuracy"] for row in metrics["models"][name]["history"]], label=name)
-        axes[1].plot(epochs, [row["train_loss"] for row in metrics["models"][name]["history"]], label=name)
-    axes[0].set(xlabel="Epoch", ylabel="Validation accuracy", ylim=(0.8, 1.0))
-    axes[1].set(xlabel="Epoch", ylabel="Training loss")
-    axes[0].legend(fontsize=8)
-    fig.tight_layout()
-    fig.savefig(RESULTS / "learning_curves.png", dpi=180)
+    ink, muted = "#171A1F", "#747D88"
+    colors = {
+        "linear": "#8F949E", "mlp128": "#7CC8CE", "mlp256": "#0C9FAA",
+        "mlp256slow": "#AF9274", "cnn": "#D69B23", "cnn_aug": "#E16B55",
+    }
+    labels = {
+        "linear": "Linear", "mlp128": "MLP 128", "mlp256": "MLP 256",
+        "mlp256slow": "MLP 256, lower LR", "cnn": "CNN", "cnn_aug": "CNN + aug.",
+    }
+    plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 10,
+                         "axes.labelcolor": ink, "text.color": ink,
+                         "xtick.color": muted, "ytick.color": muted})
+    fig, axes = plt.subplots(1, 2, figsize=(11.2, 4.6))
+    for name, record in metrics["models"].items():
+        epochs = [row["epoch"] for row in record["history"]]
+        for ax, key in zip(axes, ("val_accuracy", "train_loss")):
+            ax.plot(epochs, [row[key] for row in record["history"]],
+                    color=colors[name], marker="o", markersize=4.5, linewidth=2.9,
+                    label=labels[name])
+    for ax, title in zip(axes, ("A  Validation accuracy", "B  Training loss")):
+        ax.set_title(title, loc="left", fontweight="bold", pad=14)
+        ax.set_xlabel("Epoch")
+        ax.set_xticks(range(1, 7))
+        ax.grid(axis="y", color="#DFE5E9", linewidth=0.7)
+        ax.set_axisbelow(True)
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.spines[["left", "bottom"]].set_color("#B7C2CA")
+    axes[0].set_ylim(0.87, 1.005)
+    axes[0].yaxis.set_major_formatter(plt.FuncFormatter(lambda value, _: f"{value:.0%}"))
+    axes[1].set_ylim(bottom=0)
+    handles, names = axes[0].get_legend_handles_labels()
+    fig.legend(handles, names, loc="lower center", ncol=3, frameon=False,
+               bbox_to_anchor=(0.5, -0.01), fontsize=9)
+    fig.subplots_adjust(left=0.07, right=0.99, top=0.88, bottom=0.25, wspace=0.22)
+    fig.savefig(RESULTS / "learning_curves.png", dpi=260, facecolor="white")
     plt.close(fig)
 
-    fig, ax = plt.subplots(figsize=(6, 5))
-    image = ax.imshow(confusion, cmap="Blues")
-    fig.colorbar(image, ax=ax)
-    ax.set(xlabel="Predicted digit", ylabel="True digit", xticks=range(10), yticks=range(10))
+    fig, ax = plt.subplots(figsize=(6.2, 5.6))
+    teal_map = LinearSegmentedColormap.from_list(
+        "wandb_teal", ["#F5FAFA", "#B8E8EA", "#51BFCA", "#0C9FAA", "#07515B"])
+    image = ax.imshow(confusion, cmap=teal_map, vmin=0, vmax=confusion.max())
+    for row in range(10):
+        for col in range(10):
+            count = confusion[row, col]
+            if row == col or count >= 3:
+                ax.text(col, row, str(count), ha="center", va="center",
+                        color="white" if row == col else ink,
+                        fontsize=9, fontweight="bold" if row == col else "normal")
+    ax.set_title("Test-set confusion matrix", loc="left", fontweight="bold", pad=16)
+    ax.set(xlabel="Predicted digit", ylabel="True digit",
+           xticks=range(10), yticks=range(10))
+    ax.set_xticks(np.arange(-0.5, 10, 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, 10, 1), minor=True)
+    ax.grid(which="minor", color="white", linewidth=0.8)
+    ax.tick_params(which="minor", bottom=False, left=False)
+    ax.spines[:].set_visible(False)
+    fig.colorbar(image, ax=ax, shrink=0.82, pad=0.03, label="Number of images")
     fig.tight_layout()
-    fig.savefig(RESULTS / "confusion_matrix.png", dpi=180)
+    fig.savefig(RESULTS / "confusion_matrix.png", dpi=260, facecolor="white")
     plt.close(fig)
 
-    fig, axes = plt.subplots(1, 10, figsize=(10, 1.5))
-    for digit, (ax, item) in enumerate(zip(axes, preview)):
+    fig, axes = plt.subplots(3, 10, figsize=(10.5, 3.3))
+    for index, (ax, item) in enumerate(zip(axes.flat, preview)):
         ax.imshow(item, cmap="gray", vmin=0, vmax=255)
-        ax.set_title(str(digit))
-        ax.axis("off")
-    fig.tight_layout()
-    fig.savefig(RESULTS / "font_digits.png", dpi=180)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set(color="#C8D3DB", linewidth=0.7)
+        if index >= 20:
+            ax.set_xlabel(str(index % 10), labelpad=5, fontweight="bold")
+    for row, name in enumerate(("Sans", "Serif", "Mono")):
+        axes[row, 0].set_ylabel(name, rotation=0, ha="right", va="center", labelpad=15)
+    fig.subplots_adjust(left=0.09, right=0.99, top=0.97, bottom=0.14, wspace=0.18, hspace=0.18)
+    fig.savefig(RESULTS / "font_digits.png", dpi=260, facecolor="white")
     plt.close(fig)
 
 
@@ -203,19 +249,26 @@ def main():
     prepare_data()
     RESULTS.mkdir(exist_ok=True)
     CHECKPOINTS.mkdir(exist_ok=True)
-    basic = transforms.Compose([transforms.ToTensor(), transforms.Normalize((MEAN,), (STD,))])
-    augmented = transforms.Compose([
-        transforms.RandomAffine(degrees=12, translate=(0.1, 0.1)),
-        transforms.ToTensor(), transforms.Normalize((MEAN,), (STD,)),
-    ])
-    full_train = datasets.MNIST(DATA, train=True, transform=basic, download=True)
-    augmented_train = datasets.MNIST(DATA, train=True, transform=augmented, download=True)
-    test = datasets.MNIST(DATA, train=False, transform=basic, download=True)
+    full_train = datasets.MNIST(DATA, train=True, download=True)
     indices = torch.randperm(60000, generator=torch.Generator().manual_seed(SEED)).tolist()
     # 三类模型共用同一份训练/验证划分。
     train_indices, valid_indices = indices[:54000], indices[54000:]
     if args.quick:
         train_indices, valid_indices = train_indices[:1024], valid_indices[:256]
+    pixels = full_train.data[train_indices].float() / 255
+    mean = pixels.mean().item()
+    std = pixels.std(unbiased=False).item()
+    del pixels
+    print(f"训练图片像素统计：mean={mean:.8f}, std={std:.8f}", flush=True)
+    basic = transforms.Compose([transforms.ToTensor(), transforms.Normalize((mean,), (std,))])
+    augmented = transforms.Compose([
+        transforms.RandomAffine(degrees=12, translate=(0.1, 0.1)),
+        transforms.ToTensor(), transforms.Normalize((mean,), (std,)),
+    ])
+    full_train.transform = basic
+    augmented_train = datasets.MNIST(DATA, train=True, transform=augmented, download=True)
+    test = datasets.MNIST(DATA, train=False, transform=basic, download=True)
+    if args.quick:
         test = Subset(test, range(512))
     valid_loader = DataLoader(Subset(full_train, valid_indices), batch_size=512)
     test_loader = DataLoader(test, batch_size=512)
@@ -238,6 +291,7 @@ def main():
         ("cnn_aug", "cnn", 0, 0.001, True),
     )
     metrics = {"seed": SEED, "device": device, "torch": torch.__version__,
+               "normalization": {"mean": mean, "std": std, "train_images": len(train_indices)},
                "train_count": len(train_indices), "validation_count": len(valid_indices),
                "test_count": len(test), "models": {}}
     for name, kind, width, lr, use_aug in trials:
